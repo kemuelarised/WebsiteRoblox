@@ -1,6 +1,8 @@
-const app = require("./index-app");
+const origin = (process.env.FRONTEND_ORIGIN || "").replace(/\/$/, "");
 
-const port = Number(process.env.PORT || 5050);
-app.listen(port, () => {
-  console.log(`API listening on http://localhost:${port}`);
-});
+app.use(
+  cors({
+    origin: origin || true,
+    credentials: false,
+  })
+);
