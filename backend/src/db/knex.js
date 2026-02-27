@@ -6,17 +6,15 @@ function requireEnv(name) {
   return v;
 }
 
+const connectionString = requireEnv("DATABASE_URL");
+
 const db = knex({
-  client: "mysql2",
+  client: "pg",
   connection: {
-    host: requireEnv("DB_HOST"),
-    port: Number(process.env.DB_PORT || 3306),
-    database: requireEnv("DB_NAME"),
-    user: requireEnv("DB_USER"),
-    password: requireEnv("DB_PASSWORD"),
+    connectionString,
+    ssl: { rejectUnauthorized: false },
   },
   pool: { min: 0, max: 10 },
 });
 
 module.exports = { db };
-
