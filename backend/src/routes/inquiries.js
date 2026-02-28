@@ -56,10 +56,10 @@ router.get("/admin/inquiries/:id", adminAuth, async (req, res, next) => {
     }
 
     const result = await pool.query(
-      `SELECT id, gig_id, gig_slug, name, contact, message, status, created_at, updated_at
-       FROM inquiries
-       WHERE id = $1`,
-      [id]
+    `INSERT INTO inquiries (gig_id, gig_slug, name, contact, message, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+     RETURNING id`,
+      [gigId || null, gigSlug || null, name || null, String(contact), String(message)]
     );
 
     if (!result.rows.length) {
