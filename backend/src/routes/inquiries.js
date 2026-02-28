@@ -16,11 +16,19 @@ router.post("/inquiries", async (req, res, next) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO inquiries (gig_id, gig_slug, name, contact, message)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id`,
-      [gigId || null, gigSlug || null, name || null, String(contact), String(message)]
-    );
+  `INSERT INTO inquiries (
+     gig_id,
+     gig_slug,
+     name,
+     contact,
+     message,
+     created_at,
+     updated_at
+   )
+   VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+   RETURNING id`,
+  [gigId || null, gigSlug || null, name || null, String(contact), String(message)]
+);
 
     return res.status(201).json({ id: result.rows[0].id });
   } catch (err) {
