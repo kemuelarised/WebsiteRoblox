@@ -1,109 +1,106 @@
 const express = require("express");
-const { z } = require("zod");
-const { db } = require("../db/knex");
-const { adminAuth } = require("../middleware/adminAuth");
-
 const router = express.Router();
 
-const inquiryCreateSchema = z.object({
-  gigId: z.number().int().positive(),
-  name: z.string().min(2).max(80),
-  contact: z.string().min(3).max(160),
-  message: z.string().min(10).max(2000),
-});
+const { pool } = require("../db");
+const { adminAuth } = require("../middleware/adminAuth");
 
-const inquiryStatusSchema = z.object({
-  status: z.enum(["new", "read", "archived"]).optional(),
-});
+// =======================
+// PUBLIC: create inquiry
+// =======================
+router.post("/inquiries", async (req, res, next) => {
+  try {
+    const { gigId, gigSlug, name, contact, message } = req.body || {};
 
-router.post("/inquiries", async (req, res) => {
-  const parsed = inquiryCreateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid body", issues: parsed.error.issues });
+    if (!contact || !message) {
+      return res.status(400).json({ error: "Contact and message are required." });
+    }
 
-  const gig = await db("gigs").select("id").where({ id: parsed.data.gigId, is_active: 1 }).first();
-  if (!gig) return res.status(404).json({ error: "Gig not found" });
+    const result = await pool.query(
+      `INSERT INTO inquiries (gig_id, gig_slug, name, contact, message)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id`,
+      [gigId || null, gigSlug || null, name || null, String(contact), String(message)]
+    );
 
-  const now = new Date();
-  const [id] = await db("inquiries").insert({
-    gig_id: parsed.data.gigId,
-    name: parsed.data.name,
-    contact: parsed.data.contact,
-    message: parsed.data.message,
-    status: "new",
-    created_at: now,
-  });
-
-  res.status(201).json({ id });
-});
-
-router.get("/admin/inquiries", adminAuth, async (_req, res) => {
-  const rows = await db("inquiries")
-    .select(
-      "id",
-      "gig_id as gigId",
-      "name",
-      "contact",
-      "message",
-      "status",
-      "created_at as createdAt"
-    )
-    .orderBy("created_at", "desc");
-  res.json(rows);
-});
-
-router.get("/admin/inquiries/:id", adminAuth, async (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
-
-  const row = await db("inquiries")
-    .select(
-      "id",
-      "gig_id as gigId",
-      "name",
-      "contact",
-      "message",
-      "status",
-      "created_at as createdAt"
-    )
-    .where({ id })
-    .first();
-
-  if (!row) return res.status(404).json({ error: "Not found" });
-  res.json(row);
-});
-
-router.patch("/admin/inquiries/:id", adminAuth, async (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
-
-  const parsed = inquiryStatusSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid body", issues: parsed.error.issues });
-
-  const patch = {};
-  if (parsed.data.status) patch.status = parsed.data.status;
-
-  if (Object.keys(patch).length === 0) {
-    return res.status(400).json({ error: "Nothing to update" });
+    return res.status(201).json({ id: result.rows[0].id });
+  } catch (err) {
+    return next(err);
   }
+});
 
-  const updated = await db("inquiries").where({ id }).update(patch);
-  if (!updated) return res.status(404).json({ error: "Not found" });
+// =======================
+// ADMIN: list inquiries
+// =======================
+router.get("/admin/inquiries", adminAuth, async (_req, res, next) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, gig_id, gig_slug, name, contact, message, status, created_at, updated_at
+       FROM inquiries
+       ORDER BY created_at DESC
+       LIMIT 200`
+    );
+    return res.json(result.rows);
+  } catch (err) {
+    return next(err);
+  }
+});
 
-  const row = await db("inquiries")
-    .select(
-      "id",
-      "gig_id as gigId",
-      "name",
-      "contact",
-      "message",
-      "status",
-      "created_at as createdAt"
-    )
-    .where({ id })
-    .first();
+// =======================
+// ADMIN: get one inquiry
+// =======================
+router.get("/admin/inquiries/:id", adminAuth, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: "Invalid id." });
+    }
 
-  res.json(row);
+    const result = await pool.query(
+      `SELECT id, gig_id, gig_slug, name, contact, message, status, created_at, updated_at
+       FROM inquiries
+       WHERE id = $1`,
+      [id]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "Inquiry not found." });
+    }
+
+    return res.json(result.rows[0]);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// =======================
+// ADMIN: update status
+// =======================
+router.patch("/admin/inquiries/:id", adminAuth, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const { status } = req.body || {};
+
+    const allowed = new Set(["new", "read", "archived"]);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: "Invalid id." });
+    }
+    if (!allowed.has(status)) {
+      return res.status(400).json({ error: "Invalid status." });
+    }
+
+    const result = await pool.query(
+      `UPDATE inquiries SET status = $1 WHERE id = $2`,
+      [status, id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Inquiry not found." });
+    }
+
+    return res.status(204).send();
+  } catch (err) {
+    return next(err);
+  }
 });
 
 module.exports = { inquiriesRouter: router };
-
